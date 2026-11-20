@@ -1,0 +1,33 @@
+name: Helm chart
+on:
+  push:
+    paths: ["helm/**", ".github/workflows/helm.yml"]
+  pull_request:
+    paths: ["helm/**", ".github/workflows/helm.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar -xz kubeconform
+          sudo mv kubeconform /usr/local/bin/
+      - name: Lint chart
+        run: helm lint helm/investment-app -f helm/investment-app/ci/lint-values.yaml --strict
+      - name: Render every environment and validate against Kubernetes schemas
+        run: |
+          for env in dev staging production; do
+            echo "::group::$env"
+            helm template investment-app helm/investment-app \
+              -f helm/values/$env.yaml --set image.tag=ci \
+              | kubeconform -strict -summary -kubernetes-version 1.30.0
+            echo "::endgroup::"
+          done
